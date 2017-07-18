@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<link rel="stylesheet" type="text/css" href="kendoui/styles/kendo.common.min.css" />
+	<link rel="stylesheet" type="text/css" href="kendoui/styles/kendo.default.min.css" />
+	<style type="text/css">
+	.k-tabstrip .k-content {
+		max-height: 300px;
+		overflow-y: scroll;
+	}
+	
+	#draggable-object {
+		border: 2px dashed #00f;
+		border-radius: 5px;
+		width: 80px;
+		height: 40px;
+		line-height: 40px;
+		vertical-align: middle;
+		text-align: center;
+		cursor: move;
+	}
+	</style>
+</head>
+<body>
+	<div id="tabstrip">
+		<ul>
+			<li>mxGraph</li>
+		</ul>
+		<div>
+			<div id="draggable-object">Drag me</div>
+			<div id="graph-container"></div>
+		</div>
+	</div>
+
+	<script src="kendoui/js/jquery.min.js"></script>
+	<script src="kendoui/js/kendo.all.min.js"></script>
+	<script src="mxClient.min.js"></script>
+	<script>
+	$("#tabstrip").kendoTabStrip(
+	{
+		show: createGraph
+	}).data("kendoTabStrip").select(0);
+	
+	function createGraph()
+	{
+		// Scroll fixes
+		mxUtils.getScrollOrigin = function(node, includeAncestors, includeDocument)
+        {
+            includeAncestors = (includeAncestors != null) ? includeAncestors : false;
+            includeDocument = (includeDocument != null) ? includeDocument : true;
+
+            var doc = (node != null) ? node.ownerDocument : document;
+            var b = doc.body;
+            var d = doc.documentElement;
+            var result = new mxPoint();
+            var fixed = false;
+
+            while (node != null && node != b && node != d)
+            {
+                if (!isNaN(node.scrollLeft) && !isNaN(node.scrollTop))
+                {
+                    result.x += node.scrollLeft;
+                    result.y += node.scrollTop;
+                }
+
+                var style = mxUtils.getCurrentStyle(node);
+
+                if (style != null)
+                {
+                    fixed = fixed || style.position == 'fixed';
+                }
+
+                node = (includeAncestors) ? node.parentNode : null;
+            }
+
+            if (!fixed && includeDocument)
+            {
+                var origin = mxUtils.getDocumentScrollOrigin(doc);
+
+                result.x += origin.x;
+                result.y += origin.y;
+            }
+
+            return result;
+        };
+		
+		mxDragSource.prototype.drop = function(graph, evt, dropTarget, x, y)
+        {
+            y-= dropTarget.getGeometry().y;
+
+	        this.dropHandler(graph, evt, dropTarget, x, y);
+
+	        if (graph.container.style.visibility != 'hidden')
+	        {
+		        graph.container.focus();
+	        }
+        };
+		
+		// Creating graph
+		var graph = new mxGraph($("#graph-container").get(0));
+        graph.setConnectable(true);
+        graph.setHtmlLabels(true);
+        graph.dropEnabled = true;
+		graph.border = 80;
+		graph.getView().translate = new mxPoint(3, 3);
+		graph.setResizeContainer(true);
+		graph.graphHandler.setRemoveCellsFromParent(false);
+		graph.setAllowDanglingEdges(false);
+		graph.setSplitEnabled(false);
+
+		new mxSwimlaneManager(graph);
+		
+		var layout = new mxStackLayout(graph, false);
+		layout.resizeParent = true;
+		layout.fill = true;
+
+		var layoutMgr = new mxLayoutManager(graph),
+			parent = graph.getDefaultParent(),
+			model = graph.getModel();
+
+		graph.isPool = function(cell)
+		{
+			var model = this.getModel();
+			var parent = model.getParent(cell);
+
+			return parent != null && model.getParent(parent) == model.getRoot();
+		};
+
+		layoutMgr.getLayout = function(cell)
+		{
+			if (!model.isEdge(cell) && model.getChildCount(cell) > 0 &&
+			   (model.getParent(cell) == model.getRoot() || graph.isPool(cell)))
+			{
+				layout.fill = graph.isPool(cell);
+
+				return layout;
+			}
+
+			return null;
+		};
+		
+		var generateStyleString = function()
+		{
+			var result = "";
+
+			if (!arguments[0].length)
+			{
+				Object.keys(arguments[0]).forEach(k => result+= k + "=" + arguments[0][k] + ";");
+			}
+			else 
+			{
+				Array.prototype.slice.call(arguments)[0].forEach(k => result+= k[0] + "=" + k[1] + ";");
+			}
+
+			return result;
+		};
+		
+		var style = graph.getStylesheet().getDefaultVertexStyle(),
+            styles = {};
+
+        styles[mxConstants.STYLE_SHAPE] = mxConstants.SHAPE_SWIMLANE;
+        styles[mxConstants.STYLE_VERTICAL_ALIGN] = mxConstants.ALIGN_MIDDLE;
+        styles[mxConstants.STYLE_LABEL_PADDING] = 0;
+        styles[mxConstants.STYLE_LABEL_BACKGROUNDCOLOR] = 'white';
+        styles[mxConstants.STYLE_FONTSIZE] = 11;
+        styles[mxConstants.STYLE_STARTSIZE] = 22;
+        styles[mxConstants.STYLE_HORIZONTAL] = '0';
+        styles[mxConstants.STYLE_FONTCOLOR] = 'black';
+        styles[mxConstants.STYLE_STROKECOLOR] = 'black';
+        styles[mxConstants.STYLE_FILLCOLOR] = 'white';
+
+        var laneStyle = generateStyleString(styles),
+			laneDimensions = [640, 100];
+		
+		// Create lanes
+		var mainLane = graph.insertVertex(null, null, "Main", 0, 0, laneDimensions[0], laneDimensions[1], laneStyle);
+        mainLane.setConnectable(false);
+		
+		var lanes = [];
+		
+		for (var i = 1; i < 4; i++)
+		{
+			var lane = graph.insertVertex(mainLane, null, "Group " + i, 0, 0, laneDimensions[0], laneDimensions[1], laneStyle);
+			lane.setConnectable(false);
+			
+			lanes.push(lane);
+		}
+		
+		// Draggable object
+		var cellCount = 0,
+			c = mxConstants,
+			cellStyle = c.STYLE_STROKEWIDTH + "=2;" +
+						c.STYLE_FONTCOLOR + "#333333;" +
+						c.STYLE_FONTFAMILY + "Arial;" +
+						c.STYLE_WHITE_SPACE + "wrap;" +
+						c.STYLE_OVERFLOW + "hidden";
+						
+		mxUtils.makeDraggable($("#draggable-object").get(0), graph, function(graph, e, targetCell, x, y)
+		{
+			graph.getModel().beginUpdate();
+			
+			try
+			{
+				var newCell = new mxCell(null, new mxGeometry(x, y, 100, 80), cellStyle);
+				newCell.setVertex(true);
+				newCell.setValue("Cell #" + ++cellCount);
+				
+				graph.addCell(newCell, targetCell);
+			}
+			finally
+			{
+				graph.getModel().endUpdate();
+			}
+		}.bind(mainLane));
+	};
+	</script>
+</body>
+</html>
